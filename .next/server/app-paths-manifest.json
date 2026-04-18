@@ -1,7 +1,10 @@
 {
-  "/page": "app/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/my-grants/page": "app/my-grants/page.js",
   "/discover/page": "app/discover/page.js",
   "/icon.svg/route": "app/icon.svg/route.js",
-  "/my-grants/page": "app/my-grants/page.js",
-  "/grants/[id]/page": "app/grants/[id]/page.js"
+  "/page": "app/page.js",
+  "/grants/[id]/page": "app/grants/[id]/page.js",
+  "/resources/page": "app/resources/page.js",
+  "/categories/page": "app/categories/page.js"
 }

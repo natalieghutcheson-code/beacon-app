@@ -7,8 +7,8 @@ import { DeadlineTimeline } from "@/components/grants/DeadlineTimeline";
 import { CardShell } from "@/components/ui/CardShell";
 import {
   CATEGORY_PILL,
+  GRANTS,
   SAVED_GRANT_META,
-  getGrantById,
   getUpcomingSavedGrantDeadlines,
   getUrgency,
   type SavedGrantStatus,
@@ -38,7 +38,7 @@ interface SavedGrant {
 ───────────────────────────────────────────── */
 
 const SAVED_GRANTS: SavedGrant[] = SAVED_GRANT_META.map((meta) => {
-  const g = getGrantById(meta.id);
+  const g = GRANTS.find((gr) => gr.id === meta.id);
   if (!g) throw new Error(`Missing grant id in GRANTS: ${meta.id}`);
   return {
     id: g.id,

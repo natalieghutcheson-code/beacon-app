@@ -10,7 +10,8 @@
       "Read(//usr/**)",
       "Read(//Users/nataliehutcheson/**)",
       "Bash(npm install:*)",
-      "Bash(export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\")"
+      "Bash(export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\")",
+      "Bash(npm run:*)"
     ]
   }
 }
