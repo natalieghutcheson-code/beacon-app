@@ -4,7 +4,16 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
-import { DISCOVER_CATEGORY_FILTERS } from "@/lib/categories-data";
+// Only the categories that actually exist in the DB — kept local so the
+// browse/categories page can keep its own full list unchanged.
+const DISCOVER_CATEGORY_FILTERS = [
+  "Climate",
+  "Economic Development",
+  "Education",
+  "Parks",
+  "Public Health",
+  "Research",
+];
 import { CATEGORY_PILL, getGrants, getUrgency, type GrantRecord } from "@/lib/grants-data";
 
 /* ─────────────────────────────────────────────
@@ -17,11 +26,11 @@ const APPLICANT_OPTIONS = [
 ];
 
 const AMOUNT_OPTIONS = [
-  { value: "any", label: "Any amount" },
-  { value: "under500k", label: "Under $500K" },
-  { value: "500k-2m", label: "$500K – $2M" },
-  { value: "2m-10m", label: "$2M – $10M" },
-  { value: "10m+", label: "$10M+" },
+  { value: "any",       label: "Any amount" },
+  { value: "under100k", label: "Under $100K" },
+  { value: "100k-500k", label: "$100K – $500K" },
+  { value: "500k-1m",   label: "$500K – $1M" },
+  { value: "over1m",    label: "Over $1M" },
 ];
 
 const DEADLINE_OPTIONS = [
@@ -34,6 +43,23 @@ const CATEGORY_PARAM_ALIASES: Record<string, string> = {
   "Digital Equity": "Broadband",
   "Rural Housing": "Housing",
 };
+
+/**
+ * Maps UI filter labels to lowercase keywords found in the DB eligibility strings.
+ * The DB stores long prose strings like "Cities, counties, and other units of local government"
+ * rather than short labels, so exact-match would never hit.
+ */
+const APPLICANT_KEYWORD_MAP: Record<string, string[]> = {
+  Municipality:          ["municipality", "municipalities", "city", "cities", "local government", "units of local"],
+  County:                ["county", "counties"],
+  "State Agency":        ["state", "states", "state agency", "executive branch"],
+  Nonprofit:             ["nonprofit", "non-profit", "501(c)"],
+  University:            ["university", "universities", "higher education", "college", "institution"],
+  "Tribal Government":   ["tribal", "tribe", "tribes", "federally recognized"],
+  "School District":     ["school district", "lea ", "local educational"],
+};
+
+const LS_KEY = "beacon_saved_grants";
 
 /* ─────────────────────────────────────────────
    Page
@@ -57,6 +83,16 @@ function DiscoverPageContent() {
 
   useEffect(() => {
     getGrants().then(setGrants).finally(() => setLoading(false));
+  }, []);
+
+  // Load saved IDs from localStorage once on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      setBookmarked(raw ? JSON.parse(raw) : []);
+    } catch {
+      setBookmarked([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -97,21 +133,49 @@ function DiscoverPageContent() {
   }
 
   function toggleBookmark(id: string) {
-    setBookmarked((prev) =>
-      prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]
-    );
+    setBookmarked((prev) => {
+      const next = prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id];
+      localStorage.setItem(LS_KEY, JSON.stringify(next));
+      return next;
+    });
   }
 
   // Basic client-side filter (visual / functional)
   const filteredGrants = grants.filter((g) => {
     if (selectedCategories.length > 0 && !selectedCategories.includes(g.category)) return false;
-    if (selectedApplicants.length > 0 && !g.eligibleApplicants.some((a) => selectedApplicants.includes(a))) return false;
+
+    // Applicant filter: DB stores long prose strings, not short labels.
+    // Match by checking if any eligibility string contains a keyword for the selected label.
+    if (selectedApplicants.length > 0) {
+      const hasMatch = selectedApplicants.some((filterVal) => {
+        const keywords = APPLICANT_KEYWORD_MAP[filterVal] ?? [filterVal.toLowerCase()];
+        return g.eligibleApplicants.some((elig) =>
+          keywords.some((kw) => elig.toLowerCase().includes(kw))
+        );
+      });
+      if (!hasMatch) return false;
+    }
+
+    // Amount bucket filter — null/0 treated as unknown; excluded when a bucket is active
+    if (amountFilter !== "any") {
+      const max = g.amountMax;
+      if (!max || max <= 0) return false;
+      if (amountFilter === "under100k"  && !(max > 0 && max < 100000))           return false;
+      if (amountFilter === "100k-500k"  && !(max >= 100000 && max <= 500000))    return false;
+      if (amountFilter === "500k-1m"    && !(max > 500000 && max <= 1000000))    return false;
+      if (amountFilter === "over1m"     && !(max > 1000000))                     return false;
+    }
+
     if (noMatchOnly && g.matchRequired) return false;
     if (deadlineFilter === "this-month" && g.daysUntilDeadline > 30) return false;
     if (deadlineFilter === "90-days" && g.daysUntilDeadline > 90) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      if (!g.title.toLowerCase().includes(q) && !g.agency.toLowerCase().includes(q) && !g.category.toLowerCase().includes(q)) return false;
+      if (
+        !g.title.toLowerCase().includes(q) &&
+        !g.agency.toLowerCase().includes(q) &&
+        !g.category.toLowerCase().includes(q)
+      ) return false;
     }
     return true;
   });

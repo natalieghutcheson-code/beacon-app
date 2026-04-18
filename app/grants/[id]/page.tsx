@@ -5,7 +5,6 @@ import {
   CATEGORY_PILL,
   PROGRAM_STATUS_PILL,
   getBeaconTakeaway,
-  getGrants,
   getGrantById,
   getGoodFitForGrant,
   getUrgency,
@@ -13,12 +12,9 @@ import {
 import { GrantSaveButton } from "@/components/grants/GrantSaveButton";
 import { CardShell } from "@/components/ui/CardShell";
 
-type Props = { params: { id: string } };
+export const dynamic = "force-dynamic";
 
-export async function generateStaticParams() {
-  const grants = await getGrants();
-  return grants.map((g) => ({ id: g.id }));
-}
+type Props = { params: { id: string } };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const grant = await getGrantById(params.id);

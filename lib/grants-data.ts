@@ -87,6 +87,14 @@ export interface GrantRow {
   is_active?: boolean | null
 }
 
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Strip HTML tags that some DB fields contain (e.g. <p>…</p> in summary). */
+function stripHtml(raw: string | null | undefined): string {
+  if (!raw) return ""
+  return raw.replace(/<[^>]*>/g, "").trim()
+}
+
 // ── Row → UI mapper ─────────────────────────────────────────────────────────
 
 function rowToRecord(row: GrantRow): GrantRecord {
@@ -118,9 +126,10 @@ function rowToRecord(row: GrantRow): GrantRecord {
     agency: row.agency,
     agencyShort,
     category: row.category,
-    summary: row.summary,
-    beaconRead: row.beacon_read ?? "",
+    summary: stripHtml(row.summary),
+    beaconRead: stripHtml(row.beacon_read),
     amount: row.amount_label ?? "See NOFO",
+    amountMax: row.amount_max ?? null,
     matchRequired: row.match_required,
     matchNote: row.match_amount,
     eligibleApplicants: row.eligibility ?? [],
@@ -129,7 +138,7 @@ function rowToRecord(row: GrantRow): GrantRecord {
     daysUntilDeadline,
     cfda: row.cfda ?? "—",
     programStatus,
-    overview: row.summary,
+    overview: stripHtml(row.summary),
     allowableUses: row.allowable_uses ?? [],
     keyRestrictions: row.key_restrictions ?? [],
     howToApply: row.how_to_apply ?? [],
@@ -196,6 +205,8 @@ export interface GrantRecord {
   summary: string;
   beaconRead: string;
   amount: string;
+  /** Numeric upper bound from DB — null means unknown/not specified. Used for amount bucket filtering. */
+  amountMax: number | null;
   matchRequired: boolean;
   matchNote: string | null;
   eligibleApplicants: string[];
@@ -244,6 +255,7 @@ export const GRANTS: GrantRecord[] = [
     beaconRead:
       "Best for agencies with shovel-ready transportation projects and a credible match source.",
     amount: "$1M – $25M",
+    amountMax: 25000000,
     matchRequired: true,
     matchNote: "20% non-federal match",
     eligibleApplicants: ["Municipality", "County", "State Agency"],
@@ -301,6 +313,7 @@ export const GRANTS: GrantRecord[] = [
     beaconRead:
       "No match required — strong fit for state agencies with cross-sector GHG reduction plans.",
     amount: "$2M – $500M",
+    amountMax: 500000000,
     matchRequired: false,
     matchNote: null,
     eligibleApplicants: ["State Agency", "Municipality", "Tribal Government", "Nonprofit"],
@@ -356,6 +369,7 @@ export const GRANTS: GrantRecord[] = [
     beaconRead:
       "Formula-based — check your entitlement status before applying; competitive track separate.",
     amount: "$200K – $5M",
+    amountMax: 5000000,
     matchRequired: false,
     matchNote: null,
     eligibleApplicants: ["Municipality", "County"],
@@ -410,6 +424,7 @@ export const GRANTS: GrantRecord[] = [
     beaconRead:
       "Formula grant — eligibility automatic for qualifying districts, no application needed.",
     amount: "Formula-based",
+    amountMax: null,
     matchRequired: false,
     matchNote: null,
     eligibleApplicants: ["School District"],
@@ -462,6 +477,7 @@ export const GRANTS: GrantRecord[] = [
     beaconRead:
       "Strongest for applicants with a clear public-facing arts project and a documented cost-share plan.",
     amount: "$10K – $100K",
+    amountMax: 100000,
     matchRequired: true,
     matchNote: "1:1 cost share",
     eligibleApplicants: ["Nonprofit", "Municipality", "Tribal Government", "University"],
@@ -515,6 +531,7 @@ export const GRANTS: GrantRecord[] = [
     beaconRead:
       "Highly competitive nationally; strongest for projects with community resilience co-benefits.",
     amount: "$500K – $50M",
+    amountMax: 50000000,
     matchRequired: true,
     matchNote: "25% non-federal match",
     eligibleApplicants: ["State Agency", "Municipality", "County", "Tribal Government"],
@@ -567,6 +584,7 @@ export const GRANTS: GrantRecord[] = [
     beaconRead:
       "Flows through state offices — contact your state broadband office before pursuing directly.",
     amount: "$25M+",
+    amountMax: null,
     matchRequired: true,
     matchNote: "25% non-federal match",
     eligibleApplicants: ["State Agency", "Nonprofit", "Municipality"],
@@ -619,6 +637,7 @@ export const GRANTS: GrantRecord[] = [
     beaconRead:
       "Best suited to rural communities with a clearly defined facility need and local support already in place.",
     amount: "$50K – $10M",
+    amountMax: 10000000,
     matchRequired: false,
     matchNote: null,
     eligibleApplicants: ["Municipality", "County", "Nonprofit", "Tribal Government"],

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { supabase } from "@/lib/supabase";
 
 export const metadata: Metadata = {
   title: "Beacon — Your signal to the right funding",
@@ -12,64 +13,6 @@ const trendingTagHref: Record<string, string> = {
   "Rural Housing": "/discover?category=Rural%20Housing",
   Workforce: "/discover?category=Workforce",
 };
-
-const categories = [
-  {
-    id: "housing",
-    label: "Housing",
-    description: "Affordable housing, HUD programs & community development",
-    count: 142,
-    icon: HousingIcon,
-    featured: true,
-  },
-  {
-    id: "broadband",
-    label: "Broadband",
-    description: "Internet access, digital infrastructure & connectivity",
-    count: 89,
-    icon: BroadbandIcon,
-    featured: false,
-  },
-  {
-    id: "infrastructure",
-    label: "Infrastructure",
-    description: "Roads, bridges, transit & public works funding",
-    count: 217,
-    icon: InfrastructureIcon,
-    featured: false,
-  },
-  {
-    id: "parks",
-    label: "Parks",
-    description: "Green spaces, recreation & environmental conservation",
-    count: 63,
-    icon: ParksIcon,
-    featured: false,
-  },
-  {
-    id: "workforce",
-    label: "Workforce",
-    description: "Job training, employment programs & economic mobility",
-    count: 108,
-    icon: WorkforceIcon,
-    featured: false,
-  },
-  {
-    id: "climate",
-    label: "Climate",
-    description: "Clean energy, resilience & environmental programs",
-    count: 95,
-    icon: ClimateIcon,
-    featured: false,
-  },
-];
-
-const stats = [
-  { value: "$12B+", label: "Tracked Funding" },
-  { value: "840", label: "Active Agencies" },
-  { value: "15k", label: "Cities Served" },
-  { value: "24h", label: "Data Latency" },
-];
 
 const footerLinks = [
   { label: "Discover", href: "/discover" },
@@ -87,7 +30,52 @@ const grainTextureStyle = {
   backgroundSize: "180px 180px",
 };
 
-export default function HomePage() {
+export default async function HomePage() {
+  // Fetch lightweight stats from Supabase — only the columns we need
+  const { data: grantsData } = await supabase
+    .from("grants")
+    .select("category, amount_max, agency")
+
+  const rows = grantsData ?? []
+
+  // Per-category grant counts
+  const categoryCounts: Record<string, number> = {}
+  let totalFunding = 0
+  const agencySet = new Set<string>()
+
+  for (const g of rows) {
+    categoryCounts[g.category] = (categoryCounts[g.category] ?? 0) + 1
+    // Exclude nulls and placeholder values (0 or 1)
+    if (g.amount_max && g.amount_max > 1) totalFunding += g.amount_max
+    if (g.agency) agencySet.add(g.agency)
+  }
+
+  // Format total funding: show billions if ≥ 1B, else millions
+  const fundingDisplay =
+    totalFunding >= 1e9
+      ? `$${(totalFunding / 1e9).toFixed(1)}B+`
+      : totalFunding >= 1e6
+        ? `$${Math.round(totalFunding / 1e6)}M+`
+        : `$${Math.round(totalFunding / 1e3)}K+`
+
+  const agencyCount = agencySet.size
+
+  const categories = [
+    { id: "housing",        label: "Housing",        description: "Affordable housing, HUD programs & community development",  count: categoryCounts["Housing"] ?? 0,        icon: HousingIcon,        featured: true  },
+    { id: "broadband",      label: "Broadband",      description: "Internet access, digital infrastructure & connectivity",    count: categoryCounts["Broadband"] ?? 0,      icon: BroadbandIcon,      featured: false },
+    { id: "infrastructure", label: "Infrastructure", description: "Roads, bridges, transit & public works funding",            count: categoryCounts["Infrastructure"] ?? 0, icon: InfrastructureIcon, featured: false },
+    { id: "parks",          label: "Parks",          description: "Green spaces, recreation & environmental conservation",     count: categoryCounts["Parks"] ?? 0,          icon: ParksIcon,          featured: false },
+    { id: "workforce",      label: "Workforce",      description: "Job training, employment programs & economic mobility",     count: categoryCounts["Workforce"] ?? 0,      icon: WorkforceIcon,      featured: false },
+    { id: "climate",        label: "Climate",        description: "Clean energy, resilience & environmental programs",         count: categoryCounts["Climate"] ?? 0,        icon: ClimateIcon,        featured: false },
+  ];
+
+  const stats = [
+    { value: fundingDisplay,      label: "Tracked Funding" },
+    { value: String(agencyCount), label: "Active Agencies" },
+    { value: String(rows.length), label: "Grants Tracked" },
+    { value: "24h",               label: "Data Latency" },
+  ];
+
   return (
     <div className="bg-cream min-h-screen">
       <section className="relative overflow-hidden bg-cream">
@@ -133,11 +121,11 @@ export default function HomePage() {
 
             <div className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
               <span className="text-xs text-charcoal/45">
-                <span className="font-bold text-[#2D4A2D]">$12B+</span> tracked funding
+                <span className="font-bold text-[#2D4A2D]">{fundingDisplay}</span> tracked funding
               </span>
               <span className="text-charcoal/20 text-xs">·</span>
               <span className="text-xs text-charcoal/45">
-                <span className="font-bold text-[#2D4A2D]">840</span> active agencies
+                <span className="font-bold text-[#2D4A2D]">{agencyCount}</span> active agencies
               </span>
               <span className="text-charcoal/20 text-xs">·</span>
               <span className="text-xs text-charcoal/45">Updated daily</span>

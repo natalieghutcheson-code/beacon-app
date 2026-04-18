@@ -1,99 +1,102 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 import { DeadlineTimeline } from "@/components/grants/DeadlineTimeline";
 import { CardShell } from "@/components/ui/CardShell";
 import {
   CATEGORY_PILL,
-  GRANTS,
-  SAVED_GRANT_META,
-  getUpcomingSavedGrantDeadlines,
+  getGrants,
   getUrgency,
-  type SavedGrantStatus,
+  type DeadlineTimelineItem,
+  type GrantRecord,
 } from "@/lib/grants-data";
 
 /* ─────────────────────────────────────────────
-   Types
+   localStorage helpers
 ───────────────────────────────────────────── */
 
-interface SavedGrant {
-  id: string;
-  title: string;
-  agency: string;
-  category: string;
-  amount: string;
-  matchRequired: boolean;
-  matchNote: string | null;
-  deadlineShort: string;
-  daysUntilDeadline: number;
-  dateSaved: string;
-  status: SavedGrantStatus;
-  cfda: string;
+const LS_KEY = "beacon_saved_grants";
+
+function getSavedIds(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem(LS_KEY) ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
+function writeSavedIds(ids: string[]) {
+  localStorage.setItem(LS_KEY, JSON.stringify(ids));
 }
 
 /* ─────────────────────────────────────────────
-   Data — merged from centralized GRANTS + saved metadata
+   Static UI data
 ───────────────────────────────────────────── */
 
-const SAVED_GRANTS: SavedGrant[] = SAVED_GRANT_META.map((meta) => {
-  const g = GRANTS.find((gr) => gr.id === meta.id);
-  if (!g) throw new Error(`Missing grant id in GRANTS: ${meta.id}`);
-  return {
-    id: g.id,
-    title: g.title,
-    agency: g.agency,
-    category: g.category,
-    amount: g.amount,
-    matchRequired: g.matchRequired,
-    matchNote: g.matchNote,
-    deadlineShort: g.deadlineShort,
-    daysUntilDeadline: g.daysUntilDeadline,
-    dateSaved: meta.dateSaved,
-    status: meta.status,
-    cfda: g.cfda,
-  };
-});
-
 const ALERTS = [
-  { text: "RAISE deadline in 15 days — action needed" },
   { text: "New CDBG program notice posted by HUD" },
-  { text: "BEAD state portal opens May 1" },
+  { text: "BEAD state portal opens — check your state broadband office" },
+  { text: "BUILD grants cycle open — deadline approaching" },
 ];
 
-const STAT_CARDS = [
-  { value: "12",    label: "Saved Grants" },
-  { value: "3",     label: "Closing This Month" },
-  { value: "$47.2M",label: "Total Potential Funding" },
-  { value: "2",     label: "Applications In Progress" },
-];
-
-const TABS = ["All Saved", "Closing Soon", "In Progress"] as const;
+const TABS = ["All Saved", "Closing Soon"] as const;
 type Tab = (typeof TABS)[number];
-
-const STATUS_STYLES: Record<SavedGrantStatus, string> = {
-  Researching: "bg-slate-100 text-slate-600",
-  Applying:    "bg-[#2D4A2D]/10 text-[#2D4A2D]",
-  Submitted:   "bg-blue-50 text-blue-600",
-};
 
 /* ─────────────────────────────────────────────
    Page
 ───────────────────────────────────────────── */
 
 export default function MyGrantsPage() {
-  const [activeTab, setActiveTab] = useState<Tab>("All Saved");
+  const [activeTab, setActiveTab]     = useState<Tab>("All Saved");
+  const [savedGrants, setSavedGrants] = useState<GrantRecord[]>([]);
+  const [loading, setLoading]         = useState(true);
 
-  const upcomingDeadlines = getUpcomingSavedGrantDeadlines(4);
-  const closingSoonGrants = SAVED_GRANTS.filter((grant) => grant.daysUntilDeadline <= 30);
-  const inProgressGrants = SAVED_GRANTS.filter((grant) => grant.status === "Applying");
-  const visibleGrants =
-    activeTab === "All Saved"
-      ? SAVED_GRANTS
-      : activeTab === "Closing Soon"
-        ? closingSoonGrants
-        : inProgressGrants;
+  // Load saved IDs from localStorage → fetch matching grants from Supabase
+  useEffect(() => {
+    const ids = getSavedIds();
+    if (ids.length === 0) {
+      setLoading(false);
+      return;
+    }
+    getGrants()
+      .then((all) => setSavedGrants(all.filter((g) => ids.includes(g.id))))
+      .finally(() => setLoading(false));
+  }, []);
+
+  function removeGrant(id: string) {
+    setSavedGrants((prev) => {
+      const next = prev.filter((g) => g.id !== id);
+      writeSavedIds(next.map((g) => g.id));
+      return next;
+    });
+  }
+
+  const closingSoon    = savedGrants.filter((g) => g.daysUntilDeadline <= 30);
+  const visibleGrants  = activeTab === "Closing Soon" ? closingSoon : savedGrants;
+
+  // Derive deadline timeline items from live saved grants
+  const upcomingDeadlines: DeadlineTimelineItem[] = savedGrants
+    .filter((g) => g.daysUntilDeadline < 999)
+    .sort((a, b) => a.daysUntilDeadline - b.daysUntilDeadline)
+    .slice(0, 4)
+    .map((g) => ({
+      id: g.id,
+      title: g.title,
+      agencyShort: g.agencyShort,
+      deadline: g.deadline,
+      deadlineShort: g.deadlineShort,
+      daysUntilDeadline: g.daysUntilDeadline,
+    }));
+
+  const statCards = [
+    { value: String(savedGrants.length),  label: "Saved Grants" },
+    { value: String(closingSoon.length),  label: "Closing This Month" },
+    { value: "—",                         label: "Total Potential Funding" },
+    { value: "—",                         label: "Applications In Progress" },
+  ];
 
   return (
     <div className="bg-cream min-h-screen">
@@ -111,11 +114,8 @@ export default function MyGrantsPage() {
 
         {/* ── Stat cards ── */}
         <div className="grid grid-cols-4 gap-5 mb-8">
-          {STAT_CARDS.map((card) => (
-            <CardShell
-              key={card.label}
-              className="px-6 py-5 shadow-[0_2px_12px_rgba(0,0,0,0.06)]"
-            >
+          {statCards.map((card) => (
+            <CardShell key={card.label} className="px-6 py-5 shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
               <p className="font-bold text-[#C4A35A]" style={{ fontSize: "28px" }}>{card.value}</p>
               <p className="mt-1 text-charcoal/50 font-medium" style={{ fontSize: "13px" }}>{card.label}</p>
             </CardShell>
@@ -149,13 +149,17 @@ export default function MyGrantsPage() {
               })}
             </div>
 
-            {/* Grant list or empty state */}
-            {visibleGrants.length === 0 && activeTab !== "All Saved" ? (
+            {/* Loading state */}
+            {loading ? (
+              <div className="flex items-center justify-center min-h-[240px]">
+                <p className="text-sm text-charcoal/40">Loading saved grants…</p>
+              </div>
+            ) : visibleGrants.length === 0 ? (
               <EmptyState tab={activeTab} />
             ) : (
               <div className="flex flex-col gap-4">
                 {visibleGrants.map((grant) => (
-                  <SavedGrantCard key={grant.id} grant={grant} />
+                  <SavedGrantCard key={grant.id} grant={grant} onRemove={() => removeGrant(grant.id)} />
                 ))}
               </div>
             )}
@@ -164,44 +168,55 @@ export default function MyGrantsPage() {
           {/* ── Right: sidebar ── */}
           <div className="w-[300px] shrink-0 flex flex-col gap-5">
 
-            {/* Deadlines widget */}
+            {/* Deadlines list */}
             <CardShell className="overflow-hidden shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
               <div className="px-5 pt-5 pb-3 border-b border-[#F0EBE3]">
                 <h2 className="font-display italic text-charcoal" style={{ fontSize: "18px", fontWeight: 400 }}>
                   Deadlines
                 </h2>
               </div>
-              <div className="divide-y divide-[#F5F0E8]">
-                {upcomingDeadlines.map((item) => {
-                  const urgency = getUrgency(item.daysUntilDeadline);
-                  return (
-                    <Link key={item.id} href="/grants/1" className="flex items-center gap-3 px-5 py-3.5 hover:bg-[#FCF8F0] transition-colors">
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${urgency.dotClass}`} />
-                      <span className="flex-1 min-w-0 text-sm text-charcoal/70 truncate">
-                        {item.title}
-                      </span>
-                      <span className="text-sm font-semibold text-charcoal shrink-0">
-                        {item.deadlineShort}
-                      </span>
-                    </Link>
-                  );
-                })}
-              </div>
+              {upcomingDeadlines.length === 0 ? (
+                <p className="px-5 py-4 text-sm text-charcoal/40">No saved grants with deadlines yet.</p>
+              ) : (
+                <div className="divide-y divide-[#F5F0E8]">
+                  {upcomingDeadlines.map((item) => {
+                    const urgency = getUrgency(item.daysUntilDeadline);
+                    return (
+                      <Link
+                        key={item.id}
+                        href={`/grants/${item.id}`}
+                        className="flex items-center gap-3 px-5 py-3.5 hover:bg-[#FCF8F0] transition-colors"
+                      >
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${urgency.dotClass}`} />
+                        <span className="flex-1 min-w-0 text-sm text-charcoal/70 truncate">
+                          {item.title}
+                        </span>
+                        <span className="text-sm font-semibold text-charcoal shrink-0">
+                          {item.deadlineShort}
+                        </span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
             </CardShell>
 
-            <CardShell className="overflow-hidden shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
-              <div className="px-5 pt-5 pb-3 border-b border-[#F0EBE3]">
-                <h2 className="font-display italic text-charcoal" style={{ fontSize: "18px", fontWeight: 400 }}>
-                  Upcoming deadlines
-                </h2>
-                <p className="mt-1 text-xs text-charcoal/45">
-                  Your next saved opportunities in deadline order.
-                </p>
-              </div>
-              <div className="px-5 py-4">
-                <DeadlineTimeline items={upcomingDeadlines} />
-              </div>
-            </CardShell>
+            {/* Timeline widget */}
+            {upcomingDeadlines.length > 0 && (
+              <CardShell className="overflow-hidden shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+                <div className="px-5 pt-5 pb-3 border-b border-[#F0EBE3]">
+                  <h2 className="font-display italic text-charcoal" style={{ fontSize: "18px", fontWeight: 400 }}>
+                    Upcoming deadlines
+                  </h2>
+                  <p className="mt-1 text-xs text-charcoal/45">
+                    Your next saved opportunities in deadline order.
+                  </p>
+                </div>
+                <div className="px-5 py-4">
+                  <DeadlineTimeline items={upcomingDeadlines} />
+                </div>
+              </CardShell>
+            )}
 
             {/* Alerts widget */}
             <CardShell className="overflow-hidden shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
@@ -217,9 +232,7 @@ export default function MyGrantsPage() {
                     className="flex items-start gap-3 px-3 py-3 rounded-lg bg-[#FDFAF5]"
                     style={{ borderLeft: "3px solid #C4A35A" }}
                   >
-                    <span className="mt-0.5 shrink-0 text-[#C4A35A]">
-                      <BellIcon />
-                    </span>
+                    <span className="mt-0.5 shrink-0 text-[#C4A35A]"><BellIcon /></span>
                     <p className="text-sm text-charcoal/70 leading-snug">{alert.text}</p>
                   </div>
                 ))}
@@ -237,7 +250,7 @@ export default function MyGrantsPage() {
    Saved grant card
 ───────────────────────────────────────────── */
 
-function SavedGrantCard({ grant }: { grant: SavedGrant }) {
+function SavedGrantCard({ grant, onRemove }: { grant: GrantRecord; onRemove: () => void }) {
   const urgency   = getUrgency(grant.daysUntilDeadline);
   const pillStyle = CATEGORY_PILL[grant.category] ?? "bg-slate-50 text-slate-700 border-slate-200";
 
@@ -256,7 +269,7 @@ function SavedGrantCard({ grant }: { grant: SavedGrant }) {
 
             {/* Title + agency */}
             <div className="min-w-0">
-              <Link href="/grants/1">
+              <Link href={`/grants/${grant.id}`}>
                 <h3
                   className="font-display text-charcoal leading-snug hover:text-[#2D4A2D] transition-colors line-clamp-2"
                   style={{ fontSize: "17px", fontWeight: 400 }}
@@ -271,40 +284,35 @@ function SavedGrantCard({ grant }: { grant: SavedGrant }) {
               </p>
             </div>
 
-            {/* Status pill + View link */}
+            {/* View + Remove */}
             <div className="flex flex-col items-end gap-2.5 shrink-0">
-              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_STYLES[grant.status]}`}>
-                {grant.status}
-              </span>
               <Link
-                href="/grants/1"
+                href={`/grants/${grant.id}`}
                 className="flex items-center gap-1 text-sm font-semibold text-[#2D4A2D] hover:text-[#1e3320] transition-colors group whitespace-nowrap"
               >
                 View Grant
                 <ArrowRightIcon />
               </Link>
+              <button
+                onClick={onRemove}
+                className="text-xs text-charcoal/35 hover:text-red-500 transition-colors whitespace-nowrap"
+              >
+                Remove
+              </button>
             </div>
           </div>
 
           {/* Metadata row */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-3">
-            {/* Category */}
             <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${pillStyle}`}>
               {grant.category}
             </span>
-
-            {/* Urgency */}
             <span className={`flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full ${urgency.dateClass}`}>
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${urgency.dotClass}`} />
               {urgency.label} · {grant.deadlineShort}
             </span>
-
             <span className="text-charcoal/20 text-xs">·</span>
-
-            {/* Amount */}
             <span className="text-xs text-charcoal/55 font-medium">{grant.amount}</span>
-
-            {/* Match */}
             {grant.matchRequired && grant.matchNote && (
               <>
                 <span className="text-charcoal/20 text-xs">·</span>
@@ -317,11 +325,6 @@ function SavedGrantCard({ grant }: { grant: SavedGrant }) {
                 <span className="text-xs text-charcoal/35">No match required</span>
               </>
             )}
-
-            <span className="text-charcoal/20 text-xs">·</span>
-
-            {/* Date saved */}
-            <span className="text-xs text-charcoal/35">{grant.dateSaved}</span>
           </div>
         </div>
       </div>
@@ -330,25 +333,39 @@ function SavedGrantCard({ grant }: { grant: SavedGrant }) {
 }
 
 /* ─────────────────────────────────────────────
-   Empty state (Closing Soon tab)
+   Empty state
 ───────────────────────────────────────────── */
 
-function EmptyState({ tab }: { tab: Exclude<Tab, "All Saved"> }) {
-  const isClosingSoon = tab === "Closing Soon";
+function EmptyState({ tab }: { tab: Tab }) {
+  if (tab === "Closing Soon") {
+    return (
+      <div className="min-h-[320px] flex flex-col items-center justify-center text-center gap-4">
+        <div className="flex h-12 w-12 items-center justify-center text-[#C4B8A8]">
+          <CalendarIcon />
+        </div>
+        <p className="font-display italic text-[22px] text-charcoal">No grants closing this month</p>
+        <p className="text-[14px] text-[#888] leading-relaxed max-w-[280px]">
+          Grants with deadlines in the next 30 days will appear here.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[320px] flex flex-col items-center justify-center text-center gap-4">
       <div className="flex h-12 w-12 items-center justify-center text-[#C4B8A8]">
-        {isClosingSoon ? <CalendarIcon /> : <PencilIcon />}
+        <BookmarkEmptyIcon />
       </div>
-      <p className="font-display italic text-[22px] text-charcoal">
-        {isClosingSoon ? "No grants closing this month" : "No applications in progress"}
-      </p>
+      <p className="font-display italic text-[22px] text-charcoal">No saved grants yet</p>
       <p className="text-[14px] text-[#888] leading-relaxed max-w-[280px]">
-        {isClosingSoon
-          ? "Grants with deadlines in the next 30 days will appear here."
-          : "Mark a saved grant as 'Applying' to track it here."}
+        Save grants from the Discover page and they&apos;ll appear here.
       </p>
+      <Link
+        href="/discover"
+        className="px-5 py-2.5 bg-[#2D4A2D] text-white text-sm font-semibold rounded-lg hover:bg-[#1e3320] transition-colors"
+      >
+        Browse grants
+      </Link>
     </div>
   );
 }
@@ -360,6 +377,14 @@ function EmptyState({ tab }: { tab: Exclude<Tab, "All Saved"> }) {
 function BookmarkFilledIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="#C4A35A" stroke="#C4A35A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+function BookmarkEmptyIcon() {
+  return (
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
     </svg>
   );
@@ -390,15 +415,6 @@ function CalendarIcon() {
       <line x1="32" y1="6" x2="32" y2="14" />
       <line x1="16" y1="6" x2="16" y2="14" />
       <line x1="8" y1="20" x2="40" y2="20" />
-    </svg>
-  );
-}
-
-function PencilIcon() {
-  return (
-    <svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M10 34l-2 6 6-2 20-20-4-4-20 20z" />
-      <path d="M27 11l4 4" />
     </svg>
   );
 }
