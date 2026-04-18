@@ -6,6 +6,61 @@
 
 import { supabase } from './supabase'
 
+const MS_PER_DAY = 1000 * 60 * 60 * 24
+
+function parseGrantDate(value: string | null): Date | null {
+  if (!value) return null
+
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value
+  const parsed = new Date(normalized)
+
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+function getDaysUntilDeadline(deadline: string | null): number | null {
+  const parsed = parseGrantDate(deadline)
+  if (!parsed) return null
+
+  const today = startOfDay(new Date())
+  const deadlineDay = startOfDay(parsed)
+  return Math.round((deadlineDay.getTime() - today.getTime()) / MS_PER_DAY)
+}
+
+function formatDeadlineLabel(deadline: string | null, fallback = "TBD"): string {
+  const parsed = parseGrantDate(deadline)
+  if (!parsed) return fallback
+
+  return parsed.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  })
+}
+
+function formatDeadlineShort(deadline: string | null): string {
+  const parsed = parseGrantDate(deadline)
+  if (!parsed) return "TBD"
+
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  })
+}
+
+function isGrantRowActive(row: GrantRow): boolean {
+  if (row.is_active === false) return false
+  if (["closed", "archived"].includes(row.status.toLowerCase())) return false
+
+  const daysUntilDeadline = getDaysUntilDeadline(row.deadline)
+  if (daysUntilDeadline !== null && daysUntilDeadline < 0) return false
+
+  return true
+}
+
 // ── Supabase row type (snake_case from DB) ──────────────────────────────────
 
 export interface GrantRow {
@@ -32,17 +87,20 @@ export interface GrantRow {
   beacon_read: string | null
   good_fit_for: string[]
   official_url: string | null
+  source?: string | null
+  source_opportunity_id?: string | null
+  source_opportunity_number?: string | null
+  source_status?: string | null
+  source_last_updated_at?: string | null
+  last_synced_at?: string | null
+  is_active?: boolean | null
 }
 
 // ── Row → UI mapper ─────────────────────────────────────────────────────────
 
 function rowToRecord(row: GrantRow): GrantRecord {
-  // Derive a short deadline label from the ISO date string
-  let deadlineShort = "TBD"
-  if (row.deadline) {
-    const d = new Date(row.deadline)
-    deadlineShort = d.toLocaleDateString("en-US", { month: "short", day: "numeric" })
-  }
+  const deadlineShort = formatDeadlineShort(row.deadline)
+  const deadlineLabel = formatDeadlineLabel(row.deadline, "See NOFO")
 
   // Map DB status → ProgramStatus
   const programStatusMap: Record<string, ProgramStatus> = {
@@ -61,7 +119,7 @@ function rowToRecord(row: GrantRow): GrantRecord {
     .join("")
     .toUpperCase() || row.agency.split(" ").map((w) => w[0]).join("").toUpperCase()
 
-  const daysUntilDeadline = row.days_until_deadline ?? 999
+  const daysUntilDeadline = getDaysUntilDeadline(row.deadline) ?? row.days_until_deadline ?? 999
 
   return {
     id: row.id,
@@ -75,7 +133,7 @@ function rowToRecord(row: GrantRow): GrantRecord {
     matchRequired: row.match_required,
     matchNote: row.match_amount,
     eligibleApplicants: row.eligibility ?? [],
-    deadline: row.deadline ?? "See NOFO",
+    deadline: deadlineLabel,
     deadlineShort,
     daysUntilDeadline,
     cfda: row.cfda ?? "—",
@@ -86,7 +144,7 @@ function rowToRecord(row: GrantRow): GrantRecord {
     howToApply: row.how_to_apply ?? [],
     documentsNeeded: row.documents_needed ?? [],
     importantDates: row.deadline
-      ? [{ label: "Application deadline", date: row.deadline }]
+      ? [{ label: "Application deadline", date: deadlineLabel }]
       : [],
     periodOfPerformance: "Varies — see official NOFO for details.",
     eligibilitySummary: (row.eligibility ?? []).slice(0, 2).join("; "),
@@ -110,7 +168,11 @@ export async function getGrants(): Promise<GrantRecord[]> {
     console.error('[Beacon] getGrants error:', error.message)
     return []
   }
-  return (data ?? []).map(rowToRecord)
+
+  return (data ?? [])
+    .filter(isGrantRowActive)
+    .map(rowToRecord)
+    .sort((a, b) => a.daysUntilDeadline - b.daysUntilDeadline)
 }
 
 /**
@@ -128,7 +190,9 @@ export async function getGrantById(id: string): Promise<GrantRecord | null> {
     console.error(`[Beacon] getGrantById(${id}) error:`, error.message)
     return null
   }
-  return data ? rowToRecord(data) : null
+  if (!data || !isGrantRowActive(data)) return null
+
+  return rowToRecord(data)
 }
 
 export type ProgramStatus = "Open" | "Competitive" | "Formula";
