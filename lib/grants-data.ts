@@ -7,6 +7,7 @@
 import { supabase } from './supabase'
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24
+const LIVE_GRANTS_SOURCE = 'live_grants'
 
 function parseGrantDate(value: string | null): Date | null {
   if (!value) return null
@@ -49,16 +50,6 @@ function formatDeadlineShort(deadline: string | null): string {
     month: "short",
     day: "numeric",
   })
-}
-
-function isGrantRowActive(row: GrantRow): boolean {
-  if (row.is_active === false) return false
-  if (["closed", "archived"].includes(row.status.toLowerCase())) return false
-
-  const daysUntilDeadline = getDaysUntilDeadline(row.deadline)
-  if (daysUntilDeadline !== null && daysUntilDeadline < 0) return false
-
-  return true
 }
 
 // ── Supabase row type (snake_case from DB) ──────────────────────────────────
@@ -160,7 +151,7 @@ function rowToRecord(row: GrantRow): GrantRecord {
  */
 export async function getGrants(): Promise<GrantRecord[]> {
   const { data, error } = await supabase
-    .from('grants')
+    .from(LIVE_GRANTS_SOURCE)
     .select('*')
     .order('deadline', { ascending: true, nullsFirst: false })
 
@@ -170,7 +161,6 @@ export async function getGrants(): Promise<GrantRecord[]> {
   }
 
   return (data ?? [])
-    .filter(isGrantRowActive)
     .map(rowToRecord)
     .sort((a, b) => a.daysUntilDeadline - b.daysUntilDeadline)
 }
@@ -181,7 +171,7 @@ export async function getGrants(): Promise<GrantRecord[]> {
  */
 export async function getGrantById(id: string): Promise<GrantRecord | null> {
   const { data, error } = await supabase
-    .from('grants')
+    .from(LIVE_GRANTS_SOURCE)
     .select('*')
     .eq('id', id)
     .single()
@@ -190,7 +180,7 @@ export async function getGrantById(id: string): Promise<GrantRecord | null> {
     console.error(`[Beacon] getGrantById(${id}) error:`, error.message)
     return null
   }
-  if (!data || !isGrantRowActive(data)) return null
+  if (!data) return null
 
   return rowToRecord(data)
 }
