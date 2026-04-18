@@ -1,0 +1,7 @@
+{
+  "/page": "app/page.js",
+  "/discover/page": "app/discover/page.js",
+  "/icon.svg/route": "app/icon.svg/route.js",
+  "/my-grants/page": "app/my-grants/page.js",
+  "/grants/[id]/page": "app/grants/[id]/page.js"
+}
