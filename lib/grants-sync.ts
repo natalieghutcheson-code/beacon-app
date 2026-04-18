@@ -316,8 +316,8 @@ async function fetchOpportunityDetail(opportunityId: string | number): Promise<O
 export async function syncGrantsFromGrantsGov(): Promise<GrantsSyncResult> {
   const supabase = getSupabaseAdmin()
   const syncedAt = new Date().toISOString()
-  const rowsPerPage = Number(process.env.GRANTS_SYNC_ROWS_PER_PAGE ?? 10)
-  const maxRecords = Number(process.env.GRANTS_SYNC_MAX_RECORDS ?? 25)
+  const rowsPerPage = Number(process.env.GRANTS_SYNC_ROWS_PER_PAGE ?? 20)
+  const maxRecords = Number(process.env.GRANTS_SYNC_MAX_RECORDS ?? 100)
 
   const records: GrantUpsertRow[] = []
   const seenIds = new Set<string>()
